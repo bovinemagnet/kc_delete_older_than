@@ -19,3 +19,7 @@
 
 # Go workspace file
 go.work
+
+dist/
+## ignore the binary build with `go build`
+kc_delete_older_than

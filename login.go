@@ -35,7 +35,7 @@ func login(clientRealmName string, clientId string, clientSecret string, url str
 		token, err = client.LoginClient(ctx, clientId, clientSecret, clientRealmName)
 	}
 	if err != nil {
-		output(ERROR, true, false, "[L]       : token=%s", token)
+		output(ERROR, true, false, "[L]       : token=%v", token)
 		output(ERROR, true, false, "[L]       : err=%s", err)
 		output(ERROR, true, false, "[L][END]  : Login ********")
 
@@ -77,7 +77,7 @@ func login(clientRealmName string, clientId string, clientSecret string, url str
 
 		output(INFO, true, true, "[L]        : Token will expire in: %d hours %d minutes %d seconds\n", hours, minutes, seconds)
 
-		output(INFO, true, false, "[L]       : Login Validation Success. token=%s", token)
+		output(INFO, true, false, "[L]       : Login Validation Success. token=%v", token)
 		output(INFO, true, false, "[L][END]  : Validate Login ********")
 		return client, token, nil
 	}

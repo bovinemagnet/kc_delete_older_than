@@ -128,7 +128,7 @@ func main() {
 
 	log.SetOutput(f)
 
-	rand.Seed(time.Now().UnixNano())
+	rand.New(rand.NewSource(time.Now().UnixNano()))
 	log.SetFlags(0)
 	logCmdLineArgs()
 
@@ -209,7 +209,11 @@ func canLogin(clientRealmName string, clientId string, clientSecret string, url 
 		// This is for newer versions of Keycloak, that is based on quarkus
 		client = gocloak.NewClient(url)
 	}
-	client.RestyClient().Header.Set(headerName, headerValue)
+	// Add the custom header set, if configured.
+	if strings.TrimSpace(headerName) != "" && strings.TrimSpace(headerValue) != "" {
+		client.RestyClient().Header.Set(headerName, headerValue)
+	}
+
 	ctx := context.Background()
 	var token *gocloak.JWT
 	var err error
@@ -282,9 +286,9 @@ func listUsersByEpoch(realmName string, clientId string, clientSecret string, ta
 		// This is for newer versions of Keycloak, that is based on quarkus
 		client = gocloak.NewClient(url)
 	}
-	if headerKey != nil && *headerKey != "" {
-		// set the values if they exist.
-		client.RestyClient().Header.Set(*headerKey, *headerKey)
+	// set the header values if they exist.
+	if (headerKey != nil && strings.TrimSpace(*headerKey) != "") && (headerValue != nil && strings.TrimSpace(*headerValue) != "") {
+		client.RestyClient().Header.Set(*headerKey, *headerValue)
 	}
 	ctx := context.Background()
 	log.Println("[O]       : logging into keycloak")
@@ -387,7 +391,8 @@ func readUsersFromKeycloak(realmName string, clientId string, clientSecret strin
 		// This is for newer versions of Keycloak, that is based on quarkus
 		client = gocloak.NewClient(url)
 	}
-	if (headerKey != nil && *headerKey != "") && (headerValue != nil && *headerValue != "") {
+	// set the header values if they exist.
+	if (headerKey != nil && strings.TrimSpace(*headerKey) != "") && (headerValue != nil && strings.TrimSpace(*headerValue) != "") {
 		client.RestyClient().Header.Set(*headerKey, *headerValue)
 	}
 	ctx := context.Background()
@@ -479,7 +484,8 @@ func deleteUserWorker(id int, realmName string, clientId string, clientSecret st
 		// This is for newer versions of Keycloak, that is based on quarkus
 		client = gocloak.NewClient(url)
 	}
-	if headerKey != nil && *headerKey != "" {
+	// set the header values if they exist.
+	if (headerKey != nil && strings.TrimSpace(*headerKey) != "") && (headerValue != nil && strings.TrimSpace(*headerValue) != "") {
 		client.RestyClient().Header.Set(*headerKey, *headerValue)
 	}
 	ids := strconv.Itoa(id)
@@ -775,11 +781,11 @@ func parseEnvVariables() {
 		}
 	}
 
+	// Note this will not allow the header value to be null. need to think about this more.
 	envHeaderName := os.Getenv(ENV_HEADER_NAME)
-	if envHeaderName != "" {
+	if strings.TrimSpace(envHeaderName) != "" {
 		envHeaderValue := os.Getenv(ENV_HEADER_VALUE)
-		if envHeaderValue != "" {
-
+		if strings.TrimSpace(envHeaderValue) != "" {
 			*headerKey = envHeaderName
 			*headerValue = envHeaderValue
 		}

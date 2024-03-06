@@ -10,6 +10,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -247,14 +248,14 @@ func canLogin(clientRealmName string, clientId string, clientSecret string, url 
 		log.Println("[V]       : Token expires at:", expirationTime)
 
 		duration := time.Until(expirationTime)
-		fmt.Printf("[V]        : Token will expire in: %v seconds.\n", duration)
+		fmt.Printf("[V]       : Token will expire in: %v seconds.\n", duration)
 
 		hours := int(duration.Hours())
 		minutes := int(duration.Minutes()) % 60
 		seconds := int(duration.Seconds()) % 60
 
-		fmt.Printf("[V]        : Token will expire in: %d hours %d minutes %d seconds\n", hours, minutes, seconds)
-		log.Printf("[V]        : Token will expire in: %d hours %d minutes %d seconds\n", hours, minutes, seconds)
+		fmt.Printf("[V]       : Token will expire in: %d hours %d minutes %d seconds\n", hours, minutes, seconds)
+		log.Printf("[V]       : Token will expire in: %d hours %d minutes %d seconds\n", hours, minutes, seconds)
 
 		log.Println("[V]       : Login Validation Success", token)
 		log.Println("[V][END]  : Validate Login ********")
@@ -358,9 +359,9 @@ func listUsersByEpoch(realmName string, clientId string, clientSecret string, ta
 			counter++
 		}
 	}
-	log.Println("[O]       : Identified ", counter, " users out of ", strconv.Itoa(len(users)), " users searched")
+	log.Println("[O]       : Identified ", counter, " users out of ", strconv.Itoa(len(users)), STRING_USERS_SEARCHED)
 	log.Println("[O][END]  : reading keycloak users *******************************************")
-	fmt.Println("[O]       : Identified ", counter, " users out of ", strconv.Itoa(len(users)), " users searched")
+	fmt.Println("[O]       : Identified ", counter, " users out of ", strconv.Itoa(len(users)), STRING_USERS_SEARCHED)
 	fmt.Println("[O][END]  : reading keycloak users *******************************************")
 
 }
@@ -442,7 +443,7 @@ func readUsersFromKeycloak(realmName string, clientId string, clientSecret strin
 			counter++
 		}
 	}
-	log.Println("[R]       : Added ", counter, " users to deletion queue out of ", strconv.Itoa(len(users)), " users searched")
+	log.Println("[R]       : Added ", counter, " users to deletion queue out of ", strconv.Itoa(len(users)), STRING_USERS_SEARCHED)
 
 	log.Println("[R][END]  : reading keycloak users *******************************************")
 
@@ -459,7 +460,6 @@ func writeLog(results chan string) {
 }
 
 func deleteUserWorker(id int, realmName string, clientId string, clientSecret string, targetRealm string, url string, dryRun bool, loginAsAdmin bool, jobs <-chan []string, results chan<- string, wg *sync.WaitGroup) {
-
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Println("[D] panic : ", r.(string))
@@ -701,6 +701,12 @@ func parseEnvVariables() {
 		*logCmdValues = envLogCmdValues == "true"
 	}
 
+	// Override the value for using the legacy keycloak client url, ie `/admin`
+	envUseLegacy := os.Getenv(ENV_USE_LEGACY_KEYCLOAK)
+	if envUseLegacy != "" {
+		*useLegacyKeycloak = strings.ToUpper(envUseLegacy) == "TRUE"
+	}
+
 	envLogDir := os.Getenv(ENV_LOG_DIR)
 	if envLogDir != "" {
 		//check if the logging location exists
@@ -728,7 +734,7 @@ func parseEnvVariables() {
 		*maxAgeInDays, err = strconv.Atoi(envDays)
 		if err != nil {
 			log.Fatal("Error parsing days from env variable: ", err)
-			panic("Error parsing threads from env variable: " + ENV_MAX_AGE_IN_DAYS + err.Error())
+			panic(ERROR_PARSING_ENV_VER + ENV_MAX_AGE_IN_DAYS + err.Error())
 		}
 	}
 
@@ -736,9 +742,9 @@ func parseEnvVariables() {
 	if envThreads != "" {
 		*threads, err = strconv.Atoi(envThreads)
 		if err != nil {
-			log.Fatal("Error parsing threads from env variable: ", err)
+			log.Fatal(ERROR_PARSING_ENV_VER, err)
 			//fmt.Fatal("Error parsing threads from env variable: ", err)
-			panic("Error parsing threads from env variable: " + ENV_THREADS + err.Error())
+			panic(ERROR_PARSING_ENV_VER + ENV_THREADS + err.Error())
 		}
 	}
 
@@ -793,6 +799,7 @@ func outputCmdLineArgs(out io.Writer) {
 	fmt.Fprintln(out, "    destinationRealm:", *destinationRealm)
 	fmt.Fprintln(out, "    loginAsAdmin:", *loginAsAdmin)
 	fmt.Fprintln(out, "    url:", *url)
+	fmt.Fprintln(out, "    useLegacyKeycloak:", *useLegacyKeycloak)
 	fmt.Fprintln(out, "  Concurrency")
 	fmt.Fprintln(out, "    channelBuffer:", *channelBuffer)
 	fmt.Fprintln(out, "    threads:", *threads)

@@ -59,5 +59,7 @@ const (
 // Misc other constants.
 const (
 	// Date format
-	DateFormat = "2006-01-02"
+	DateFormat            = "2006-01-02"
+	ERROR_PARSING_ENV_VER = "Error parsing threads from env variable: "
+	STRING_USERS_SEARCHED = " users searched"
 )

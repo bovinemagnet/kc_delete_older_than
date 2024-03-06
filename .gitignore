@@ -17,9 +17,17 @@
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
+## Ignore intelij files
+.idea/
+kc_delete_older_than.iml
+
 # Go workspace file
 go.work
 
 dist/
 ## ignore the binary build with `go build`
 kc_delete_older_than
+## Ignore custom scripts, that are not part of the project
+delete.*.example.sh
+## Don't ignore the script that is an example of how to use environment varlables.
+!delete.localhost.example.sh

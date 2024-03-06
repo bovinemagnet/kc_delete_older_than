@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/Nerzal/gocloak/v13"
-	jwt "github.com/dgrijalva/jwt-go"
+	jwt "github.com/golang-jwt/jwt/v5"
 )
 
 func login(clientRealmName string, clientId string, clientSecret string, url string, headerName string, headerValue string, loginAsAdmin *bool, validateLogin *bool) (*gocloak.GoCloak, *gocloak.JWT, error) {

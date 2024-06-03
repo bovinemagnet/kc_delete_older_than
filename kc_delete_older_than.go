@@ -47,12 +47,13 @@ var (
 	showVersion  *bool = flag.Bool("version", false, "if true, Then it will show the version.")
 
 	// Logging Options
-	logCmdValues *bool   = flag.Bool("logCmdValues", false, "if true, then the command line values will be logged.")
-	logDir       *string = flag.String("logDir", os.TempDir(), "The logging directory.")
-	listOnly     *bool   = flag.Bool("listOnly", false, "if true, then it will only generate a list the users that will be deleted.")
-	deleteDate   *string = flag.String("deleteDate", "", "The date after which users will be deleted. Format: YYYY-MM-DD")
-	searchMin    *int    = flag.Int("searchMin", 0, "The starting number of users to search through.")
-	searchMax    *int    = flag.Int("searchMax", 1000, "The maximum number of users to search through.")
+	logCmdValues        *bool   = flag.Bool("logCmdValues", false, "if true, then the command line values will be logged.")
+	logDir              *string = flag.String("logDir", os.TempDir(), "The logging directory.")
+	listOnly            *bool   = flag.Bool("listOnly", false, "if true, then it will only generate a list the users that will be deleted.")
+	deleteDate          *string = flag.String("deleteDate", "", "The date after which users will be deleted. Format: YYYY-MM-DD")
+	searchMin           *int    = flag.Int("searchMin", 0, "The starting number of users to search through.")
+	searchMax           *int    = flag.Int("searchMax", 1000, "The maximum number of users to search through.")
+	countTotalUsersOnly *bool   = flag.Bool("countTotalUsersOnly", false, "if true, then just  do a call to `GET /{realm}/user/count`.")
 	// keycloak
 	useLegacyKeycloak *bool = flag.Bool("useLegacyKeycloak", false, "if true, then it will use the legacy keycloak client url.")
 	// Validate login only
@@ -165,8 +166,8 @@ func main() {
 	log.Println("[M] START : exe=", exeName, " epoch=", strconv.FormatInt(startTime, 10), "user=", u.Username, "olderThan=", epochToDateString(epoch), "currentDate=", epochToDateString(startTime))
 	fmt.Println("[M] START : exe="+exeName+" epoch="+strconv.FormatInt(startTime, 10), " user="+u.Username, "olderThan=", epochToDateString(epoch), "currentDate=", epochToDateString(startTime))
 
-	// If we are list only, then we don't need to start the workers.
-	if *listOnly {
+	// If we are list only, or count then we don't need to start the workers.
+	if *listOnly || *countTotalUsersOnly {
 		log.Println("[M]       : LIST ONLY MODE")
 		fmt.Println("[M]       : LIST ONLY MODE")
 		listUsersByEpoch(*clientRealm, *clientId, *clientSecret, *destinationRealm, *url, epoch)
@@ -331,6 +332,11 @@ func listUsersByEpoch(realmName string, clientId string, clientSecret string, ta
 		log.Println("[O]       : Total Users In System =", totalUsers)
 	}
 
+	if *countTotalUsersOnly {
+		fmt.Println("[O][END]  : counting keycloak users *******************************************")
+		os.Exit(0)
+	}
+
 	users, err := client.GetUsers(ctx, token.AccessToken, targetRealm, userParams)
 
 	//	users, err := client.GetUsers(ctx, token.AccessToken, targetRealm, gocloak.GetUsersParams{})
@@ -363,10 +369,16 @@ func listUsersByEpoch(realmName string, clientId string, clientSecret string, ta
 			counter++
 		}
 	}
+	if len(users) > 0 && counter == 0 {
+		fmt.Println("[O]       : No users=[0] found in the searchWindow=[", *searchMax, "] search window, older than ", epochToDateString(deleteEpochTime))
+		log.Println("[O]       : No users=[0] found in the searchWindow=[", *searchMax, "]  older than ", epochToDateString(deleteEpochTime))
+	}
+
 	log.Println("[O]       : Identified ", counter, " users out of ", strconv.Itoa(len(users)), STRING_USERS_SEARCHED)
 	log.Println("[O][END]  : reading keycloak users *******************************************")
+
 	fmt.Println("[O]       : Identified ", counter, " users out of ", strconv.Itoa(len(users)), STRING_USERS_SEARCHED)
-	fmt.Println("[O][END]  : reading keycloak users *******************************************")
+	fmt.Println("[O][END]  : listUsersByEpoch users *******************************************")
 
 }
 
@@ -791,6 +803,18 @@ func parseEnvVariables() {
 		}
 	}
 
+	// Check if the user wants to only count the total number of users.
+	envCountOnly := os.Getenv(ENV_COUNT_ONLY)
+	if envCountOnly != "" {
+		*countTotalUsersOnly = envCountOnly == "true"
+	}
+
+	// Check if the user wants to only list the users that will be deleted.
+	envListUsers := os.Getenv(ENV_LIST_ONLY)
+	if envListUsers != "" {
+		*listOnly = envListUsers == "true"
+	}
+
 	logCmdLineArgs()
 
 }
@@ -827,5 +851,7 @@ func outputCmdLineArgs(out io.Writer) {
 	fmt.Fprintln(out, "    logDir:", *logDir)
 	fmt.Fprintln(out, "    searchMin:", *searchMin)
 	fmt.Fprintln(out, "    searchMax:", *searchMax)
+	fmt.Fprintln(out, "    countTotalUsersOnly:", *countTotalUsersOnly)
+	fmt.Fprintln(out, "    listOnly:", *listOnly)
 	fmt.Fprintln(out, " ")
 }

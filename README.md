@@ -175,7 +175,7 @@ When you call the application, it will tell you some of your config settings, wa
 
 ## Example Call Script ##
 
-There is a test example called `delete.local.example.sh` that you can test with.  It assumed you have built the code with `goreleaser`
+There is a test example called [`delete.localhost.example.sh`](delete.localhost.example.sh) that you can test with.  It assumed you have built the code with `goreleaser`
 
 
 
@@ -224,4 +224,49 @@ There is a test example called `delete.local.example.sh` that you can test with.
     • writing                                        file=dist/artifacts.json
     • writing                                        file=dist/metadata.json
   • release succeeded after 2s
+```
+
+
+### Using Environment Variables ###
+
+Many of the settings that are configurable via command line can be set via the OS environment variables. 
+
+The following is an example of the [`delete.localhost.example.sh`](delete.localhost.example.sh) file that you can use to set the environment variables.
+
+(listed below for your reference)
+
+```bash
+#!/usr/bin/env bash
+
+export KC_CLIENT_ID="admin"
+export KC_CLIENT_SECRET="password"
+export KC_CLIENT_REALM="master"
+export KC_URL="http://localhost"
+
+export KC_DESTINATION_REALM="test"
+
+export KC_DRY_RUN="false"
+export KC_USERNAME="admin"
+export KC_LOG_DIR="/tmp"
+#export KC_LOG_CMD_VALUES=
+export KC_USE_LEGACY_KEYCLOAK="TRUE"
+export KC_LOGIN_AS_ADMIN="true"
+## Concurrency Settings
+export KC_THREADS=6
+export KC_CHANNEL_BUFFER=10
+## Deletion Date settings
+#export KC_MAX_AGE_IN_DATE="2020-01-01"
+## OR, but not both.
+export KC_MAX_AGE_IN_DAYS=30
+## Header
+export KC_HEADER_NAME="XX-HEADER-NAME"
+export KC_HEADER_VALUE="header-value"
+
+##  PAgination
+export KC_PAGE_SIZE=1000
+export KC_PAGE_OFFSET=0
+
+# Listing Stuff
+export KC_COUNT_ONLY="false"
+export KC_LIST_ONLY="true"
 ```

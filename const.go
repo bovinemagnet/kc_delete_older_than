@@ -36,7 +36,7 @@ const (
 	ENV_THREADS        = "KC_THREADS"
 	ENV_CHANNEL_BUFFER = "KC_CHANNEL_BUFFER"
 	// Deletion on days.
-	ENV_MAX_AGE_IN_DATE = "KC_MAX_AGE_IN_DATE"
+	ENV_DELETE_DATE     = "KC_DELETE_DATE"
 	ENV_MAX_AGE_IN_DAYS = "KC_MAX_AGE_IN_DAYS"
 	// Pagination
 	ENV_PAGE_SIZE   = "KC_PAGE_SIZE"
@@ -44,6 +44,8 @@ const (
 	// Header
 	ENV_HEADER_NAME  = "KC_HEADER_NAME"
 	ENV_HEADER_VALUE = "KC_HEADER_VALUE"
+	// User search
+	ENV_SEARCH_ALL_USERS = "KC_SEARCH_ALL_USERS"
 )
 
 // Output colours.

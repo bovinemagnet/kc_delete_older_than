@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -195,29 +194,9 @@ func main() {
 func canLogin() (bool, error) {
 	log.Println("[V][START]: Validate Login ********")
 
-	var client *gocloak.GoCloak
-	if *UseLegacyKeycloak {
-		// This is for older versions of Keycloak that is based on WildFly
-		client = gocloak.NewClient(*Url, gocloak.SetLegacyWildFlySupport())
-	} else {
-		// This is for newer versions of Keycloak, that is based on quarkus
-		client = gocloak.NewClient(*Url)
-	}
-	// Add the custom header set, if configured.
-	if strings.TrimSpace(*HeaderKey) != "" && strings.TrimSpace(*HeaderValue) != "" {
-		client.RestyClient().Header.Set(*HeaderKey, *HeaderValue)
-	}
+	client := initKeycloakClient()
 
-	ctx := context.Background()
-	var token *gocloak.JWT
-	var err error
-	if *LoginAsAdmin {
-		log.Println("[V]       : logging into keycloak via admin")
-		token, err = client.LoginAdmin(ctx, *ClientId, *ClientSecret, *ClientRealm)
-	} else {
-		log.Println("[V]       : logging into keycloak via client")
-		token, err = client.LoginClient(ctx, *ClientId, *ClientSecret, *ClientRealm)
-	}
+	token, err := loginKeycloak(client)
 	if err != nil {
 		log.Println("[V]       : token=", token)
 		log.Println("[V]       : err=", err)
@@ -744,12 +723,14 @@ func validateDayDateConfiguration() {
 func initKeycloakClient() *gocloak.GoCloak {
 	var client *gocloak.GoCloak
 	if *UseLegacyKeycloak {
+		// This is for older versions of Keycloak that is based on WildFly
 		client = gocloak.NewClient(*Url, gocloak.SetLegacyWildFlySupport())
 	} else {
+		// This is for newer versions of Keycloak, that is based on quarkus
 		client = gocloak.NewClient(*Url)
 	}
-
-	if *HeaderKey != "" && *HeaderValue != "" {
+	// Add the custom header set, if configured.
+	if strings.TrimSpace(*HeaderKey) != "" && strings.TrimSpace(*HeaderValue) != "" {
 		client.RestyClient().Header.Set(*HeaderKey, *HeaderValue)
 	}
 
@@ -780,7 +761,7 @@ func startLogging(exeName string, startTimeString string) (string, error) {
 	logCmdLineArgs()
 
 	log.Println("Logging started")
-	//defer f.Close()
+	//defer f.Close() // Replaced this with a func defer in main.
 	return f.Name(), nil
 }
 
@@ -827,64 +808,6 @@ func handleDryRun() {
 		log.Println("Dry run mode enabled. No users will be deleted.")
 		printCmdLineArgsCfg()
 	}
-}
-
-/**
- * Search Keycloak for users to delete.
- */
-func searchKeycloakForUsersToDelete2(client *gocloak.GoCloak, token *gocloak.JWT, epoch int64, totalUsers int) ([]DeletionUser, error) {
-	ctx := context.Background()
-	userParams := gocloak.GetUsersParams{}
-	userParams.First = Page
-	userParams.Max = PageSize
-
-	if *CountTotalUsersOnly {
-		fmt.Println("[O][END]  : counting keycloak users *******************************************")
-		os.Exit(0)
-	}
-	var users []*gocloak.User
-
-	if *SearchAllUsers {
-		// Build the user list.
-		fmt.Printf("[S] Pages required=%f", math.Ceil(float64(totalUsers)/float64(*PageSize)))
-
-		for currentPage := *Page; currentPage**PageSize < totalUsers; currentPage++ {
-			startIndex := currentPage * *PageSize
-			endIndex := (currentPage + 1) * *PageSize
-			if endIndex > totalUsers {
-				endIndex = totalUsers
-			}
-			userParams.First = &startIndex
-			userParams.Max = &*PageSize
-			fmt.Printf("[S] Building User List: user page=%d: users from=%d to=%d", currentPage, startIndex+1, endIndex)
-			tmpUsers, err := client.GetUsers(ctx, token.AccessToken, *DestinationRealm, userParams)
-			if err != nil {
-				log.Println("[S]       : Error fetching users:", err, " total_users_fetched=", len(users))
-				return nil, err
-			}
-			// Add the users to the list
-			users = append(users, tmpUsers...)
-			fmt.Printf("[S] total_users_fetched=%d\n", len(users))
-		}
-	} else {
-		// just add the ones that are in the search window
-		users, err := client.GetUsers(ctx, token.AccessToken, *DestinationRealm, userParams)
-
-		if err != nil {
-			//fmt.Println("Error fetching users:", err)
-			log.Println("[S]       : Error fetching users:", err)
-			return nil, err
-		}
-
-		// Delete users that were created more than 7 days ago
-		log.Println("[S]       : adding user to deletion queue")
-		// get the count of users
-		if len(users) > 0 {
-			fmt.Println("Username,ID,CreationDate")
-			log.Println("Username,ID,CreationDate")
-		}
-	}
-	return nil, nil
 }
 
 /**

@@ -1,4 +1,4 @@
-## README
+# README #
 
 This is a simple tool to delete users in a Keycloak realm that are older than a certain number of days or date.
 
@@ -19,31 +19,33 @@ If you want to bulk delete users who were created more than 30 days ago, you wou
 
 `kc_delete_older_than --days 30`
 
-## Usage
+## Usage ##
 
 ```bash
 Usage of ./kc_delete_older_than:
-  -b, --channelBuffer int              the number of buffered spaces in the channel buffer (default 10000)
-  -u, --clientId string                The API user that will execute the calls. (default "admin")
-  -s, --clientRealm clientId           The realm in which the clientId exists (default "master")
-  -p, --clientSecret clientId          The secret for the keycloak user defined by clientId (default "admin")
-      --days int                       the number of days, after which users are deleted (default -1)
-      --deleteDate string              The date after which users will be deleted. Format: YYYY-MM-DD
-  -d, --destinationRealm clientRealm   The realm in keycloak where the users are to be created. This may or may not be the same as the clientRealm (default "delete")
-      --dryRun                         if true, then no users will be deleted, it will just log the outcome.
-      --headerKey string               The header key to use for the login.
-      --headerValue string             The header value to use for the login.
-      --listOnly                       if true, then it will only generate a list the users that will be deleted.
-      --logCmdValues                   if true, then the command line values will be logged.
-      --logDir string                  The logging directory. (default "/tmp")
-  -z, --loginAsAdmin                   if true, then it will login as admin user, rather than a client.
-      --searchMax int                  The maximum number of users to search through. (default 1000)
-      --searchMin int                  The starting number of users to search through.
-  -t, --threads int                    the number of threads to run the keycloak import (default 10)
-  -w, --url string                     The URL of the keycloak server. (default "http://127.0.0.1:8080")
-      --useLegacyKeycloak              if true, then it will use the legacy keycloak client url.
-  -v, --validateLoginOnly              if true, then it will only validate the login.
-      --version                        if true, Then it will show the version.
+-b, --channelBuffer int                             the number of buffered spaces in the channel buffer (default 10000)
+-u, --clientId string                               The API user that will execute the calls. (default "admin")
+-s, --clientRealm clientId                          The realm in which the clientId exists (default "master")
+-p, --clientSecret clientId                         The secret for the keycloak user defined by clientId (default "admin")
+--countTotalUsersOnly GET /{realm}/user/count   if true, then just  do a call to GET /{realm}/user/count.
+--days int                                      the number of days, after which users are deleted (default -1)
+--deleteDate string                             The date after which users will be deleted. Format: YYYY-MM-DD
+-d, --destinationRealm clientRealm                  The realm in keycloak where the users are to be created. This may or may not be the same as the clientRealm(default "delete")
+--dryRun                                        if true, then no users will be deleted, it will just log the outcome.
+--headerKey string                              The header key to use for the login.
+--headerValue string                            The header value to use for the login.
+--listOnly                                      if true, then it will only generate a list the users that will be deleted.
+--logCmdValues                                  if true, then the command line values will be logged.
+--logDir string                                 The logging directory. (default "/tmp")
+-z, --loginAsAdmin                                  if true, then it will login as admin user, rather than a client.
+--page int                                      Pagination: The starting page.
+--pageSize int                                  Pagination: The size of the page (number of records) (default 1000)
+--searchAllUsers                                if 'true', then it will search all users, in batches of 'pageSize' starting at 'page'
+-t, --threads int                                   the number of threads to run the keycloak import (default 10)
+-w, --url string                                    The URL of the keycloak server. (default "http://127.0.0.1:8080")
+--useLegacyKeycloak                             if true, then it will use the legacy keycloak client url.
+-v, --validateLoginOnly                             if true, then it will only validate the login.
+--version                                       if true, Then it will show the version.
 pflag: help requested
 ```
 
@@ -58,8 +60,8 @@ kc_user_delete_older \
     --clientSecret=admin \
     --days=30  \
     --destinationRealm delete \
-    --searchMax=3000 \
-    --searchMin=0 \
+    --pageSize=3000 \
+    --page=0 \
     --threads=6
 ```
 
@@ -169,8 +171,8 @@ When you call the application, it will tell you some of your config settings, wa
     dryRun: false
     logCmdValues: false
     logDir: /tmp
-    searchMin: 0
-    searchMax: 1000
+    page: 0
+    pageSize: 1000
 ```
 
 ## Example Call Script ##
@@ -229,7 +231,7 @@ There is a test example called [`delete.localhost.example.sh`](delete.localhost.
 
 ### Using Environment Variables ###
 
-Many of the settings that are configurable via command line can be set via the OS environment variables. 
+Many of the settings that are configurable via command line can be set via the OS environment variables.
 
 The following is an example of the [`delete.localhost.example.sh`](delete.localhost.example.sh) file that you can use to set the environment variables.
 

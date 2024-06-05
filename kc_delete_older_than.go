@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math/rand"
+	"math"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -23,44 +23,55 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 )
 
+type DeletionUser struct {
+	Id               string
+	Username         string
+	Email            string
+	CreatedTimestamp int64
+}
+
+var (
+	// Concurrency
+	Threads       *int = flag.IntP("threads", "t", THREADS, "the number of threads to run the keycloak import")
+	ChannelBuffer *int = flag.IntP("channelBuffer", "b", CHANNEL_BUFFER, "the number of buffered spaces in the channel buffer")
+	// Keycloak Login Details
+	ClientId     *string = flag.StringP("clientId", "u", CLIENT_ID, "The API user that will execute the calls.")
+	ClientSecret *string = flag.StringP("clientSecret", "p", CLIENT_SECRET, "The secret for the keycloak user defined by `clientId`")
+	ClientRealm  *string = flag.StringP("clientRealm", "s", CLIENT_REALM, "The realm in which the `clientId` exists")
+	Url          *string = flag.StringP("url", "w", URL, "The URL of the keycloak server.")
+	LoginAsAdmin *bool   = flag.BoolP("loginAsAdmin", "z", false, "if true, then it will login as admin user, rather than a client.")
+	// Target or Destination Realm
+	DestinationRealm *string = flag.StringP("destinationRealm", "d", DESTINATION_REALM, "The realm in keycloak where the users are to be created. This may or may not be the same as the `clientRealm`")
+	// Options
+	MaxAgeInDays *int  = flag.Int("days", EMPTY_DAYS, "the number of days, after which users are deleted")
+	DryRun       *bool = flag.Bool("dryRun", false, "if true, then no users will be deleted, it will just log the outcome.")
+	ShowVersion  *bool = flag.Bool("version", false, "if true, Then it will show the version.")
+	// Pagination
+	Page           *int  = flag.Int("page", 0, "Pagination: The starting page.")
+	PageSize       *int  = flag.Int("pageSize", 1000, "Pagination: The size of the page (number of records)")
+	SearchAllUsers *bool = flag.Bool("searchAllUsers", false, "if 'true', then it will search all users, in batches of 'pageSize' starting at 'page'")
+	// Logging Options
+	LogCmdValues        *bool   = flag.Bool("logCmdValues", false, "if true, then the command line values will be logged.")
+	LogDir              *string = flag.String("logDir", os.TempDir(), "The logging directory.")
+	ListOnly            *bool   = flag.Bool("listOnly", false, "if true, then it will only generate a list the users that will be deleted.")
+	DeleteDate          *string = flag.String("deleteDate", "", "The date after which users will be deleted. Format: YYYY-MM-DD")
+	CountTotalUsersOnly *bool   = flag.Bool("countTotalUsersOnly", false, "if true, then just  do a call to `GET /{realm}/user/count`.")
+	// keycloak
+	UseLegacyKeycloak *bool = flag.Bool("useLegacyKeycloak", false, "if true, then it will use the legacy keycloak client url.")
+	// Validate login only
+	ValidateLoginOnly *bool = flag.BoolP("validateLoginOnly", "v", false, "if true, then it will only validate the login.")
+	// Headers
+	HeaderKey   *string = flag.String("headerKey", "", "The header key to use for the login.")
+	HeaderValue *string = flag.String("headerValue", "", "The header value to use for the login.")
+	// deprecated flags
+	SearchMin *int = flag.Int("searchMin", 0, "The starting number of users to search through.")
+	SearchMax *int = flag.Int("searchMax", 1000, "The maximum number of users to search through.")
+)
+
 var (
 	version = "dev"
 	commit  = "none"
 	date    = "unknown"
-)
-
-var (
-	// Concurrency
-	threads       *int = flag.IntP("threads", "t", THREADS, "the number of threads to run the keycloak import")
-	channelBuffer *int = flag.IntP("channelBuffer", "b", CHANNEL_BUFFER, "the number of buffered spaces in the channel buffer")
-	// Keycloak Login Details
-	clientId     *string = flag.StringP("clientId", "u", CLIENT_ID, "The API user that will execute the calls.")
-	clientSecret *string = flag.StringP("clientSecret", "p", CLIENT_SECRET, "The secret for the keycloak user defined by `clientId`")
-	clientRealm  *string = flag.StringP("clientRealm", "s", CLIENT_REALM, "The realm in which the `clientId` exists")
-	url          *string = flag.StringP("url", "w", URL, "The URL of the keycloak server.")
-	loginAsAdmin *bool   = flag.BoolP("loginAsAdmin", "z", false, "if true, then it will login as admin user, rather than a client.")
-	// Target or Destination Realm
-	destinationRealm *string = flag.StringP("destinationRealm", "d", DESTINATION_REALM, "The realm in keycloak where the users are to be created. This may or may not be the same as the `clientRealm`")
-	// Options
-	maxAgeInDays *int  = flag.Int("days", EMPTY_DAYS, "the number of days, after which users are deleted")
-	dryRun       *bool = flag.Bool("dryRun", false, "if true, then no users will be deleted, it will just log the outcome.")
-	showVersion  *bool = flag.Bool("version", false, "if true, Then it will show the version.")
-
-	// Logging Options
-	logCmdValues        *bool   = flag.Bool("logCmdValues", false, "if true, then the command line values will be logged.")
-	logDir              *string = flag.String("logDir", os.TempDir(), "The logging directory.")
-	listOnly            *bool   = flag.Bool("listOnly", false, "if true, then it will only generate a list the users that will be deleted.")
-	deleteDate          *string = flag.String("deleteDate", "", "The date after which users will be deleted. Format: YYYY-MM-DD")
-	searchMin           *int    = flag.Int("searchMin", 0, "The starting number of users to search through.")
-	searchMax           *int    = flag.Int("searchMax", 1000, "The maximum number of users to search through.")
-	countTotalUsersOnly *bool   = flag.Bool("countTotalUsersOnly", false, "if true, then just  do a call to `GET /{realm}/user/count`.")
-	// keycloak
-	useLegacyKeycloak *bool = flag.Bool("useLegacyKeycloak", false, "if true, then it will use the legacy keycloak client url.")
-	// Validate login only
-	validateLoginOnly *bool = flag.BoolP("validateLoginOnly", "v", false, "if true, then it will only validate the login.")
-	// Headers
-	headerKey   *string = flag.String("headerKey", "", "The header key to use for the login.")
-	headerValue *string = flag.String("headerValue", "", "The header value to use for the login.")
 )
 
 // var processed uint64
@@ -79,63 +90,41 @@ func main() {
 	// Get the name of the executable file
 	exeName := filepath.Base(exePath)
 
-	// Parse the env variables
+	// Parse the env variables first, to set new defaults
 	parseEnvVariables()
-
+	// deprecate the old flags.
+	flag.CommandLine.MarkDeprecated("searchMin", "use 'page' instead")
+	flag.CommandLine.MarkDeprecated("searchMax", "use 'pageSize' instead")
 	// Parse the command line arguments
 	flag.Parse()
 
-	if *showVersion {
+	if *ShowVersion {
 		fmt.Printf("%s \n [ version=%s ]\n [ commit=%s ]\n [ buildTime=%s ]\n", exeName, version, commit, date)
 		return
 	}
 
 	// Display the command line arguments back to the user.
-	if dryRun != nil && *dryRun {
-		printCmdLineArgs()
-	}
-	// if maxAgeInDays and date are both set, then we need to exit.
-	if *maxAgeInDays > EMPTY_DAYS && *deleteDate != "" {
-		fmt.Println("[M]  Error: maxAgeInDays and deleteDate are both set. Please set only one of them.")
-		return
-	}
-
-	// check if neither are set.
-	if *maxAgeInDays <= EMPTY_DAYS && *deleteDate == "" {
-		fmt.Println("[M]  Error: maxAgeInDays and deleteDate are both not set. Please set only one of them.")
-		return
-	}
-
-	// Check if the date is set, and if so, if it can be parsed.
-	if *deleteDate != "" {
-		_, err := time.Parse(DateFormat, *deleteDate)
-		if err != nil {
-			fmt.Println("[M]  Error: deleteDate is not in the correct format. Please use YYYY-MM-DD")
-			return
-		}
-	}
-
+	handleDryRun()
+	// Check the validation is correct
+	validateDayDateConfiguration()
 	// log the command line arguments to the log file.
-
 	startTimeString := strconv.FormatInt(time.Now().Unix(), 10)
+	fileName, err := startLogging(exeName, startTimeString)
+	if err != nil {
+		fmt.Println("[M]  Unable to start logging")
+		fmt.Println("[M]  Error:", err)
+		//return
+	}
+	defer func() {
+		// defer closing the log file until the end of the function
+		log.Println("[M]  Closing log file:", fileName)
+	}()
 
 	startTime := makeTimestamp()
 
-	f, err := os.OpenFile(*logDir+"/"+startTimeString+"-"+exeName+".log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-	if err != nil {
-		log.Fatalf("[M]  error opening file: %v", err)
-	}
-	defer f.Close()
-
-	log.SetOutput(f)
-
-	rand.New(rand.NewSource(time.Now().UnixNano()))
-	log.SetFlags(0)
-	logCmdLineArgs()
-
 	u, _ := user.Current()
 
-	success, err := canLogin(*clientRealm, *clientId, *clientSecret, *url, *headerKey, *headerValue)
+	success, err := canLogin()
 	if err != nil {
 		log.Println("[M]  error logging in: ", err)
 		fmt.Println("[M]  FAIL: error logging in: ", err)
@@ -145,17 +134,17 @@ func main() {
 		log.Println("[M]  error logging in: ", err)
 		return
 	}
-	if *validateLoginOnly {
+	if *ValidateLoginOnly {
 		log.Println("[M]  SUCCESS: login validated.")
 		fmt.Println("[M]  SUCCESS: login validated.")
 		return
 	}
 	//
 	var epoch int64
-	if *maxAgeInDays > EMPTY_DAYS {
-		epoch = daysToEpoch(*maxAgeInDays)
+	if *MaxAgeInDays > EMPTY_DAYS {
+		epoch = daysToEpoch(*MaxAgeInDays)
 	} else {
-		epoch, err = parseDateToEpoch(*deleteDate)
+		epoch, err = parseDateToEpoch(*DeleteDate)
 		if err != nil {
 			log.Println("[M]  error parsing date: ", err)
 			fmt.Println("[M]  FAIL: error parsing date: ", err)
@@ -167,24 +156,24 @@ func main() {
 	fmt.Println("[M] START : exe="+exeName+" epoch="+strconv.FormatInt(startTime, 10), " user="+u.Username, "olderThan=", epochToDateString(epoch), "currentDate=", epochToDateString(startTime))
 
 	// If we are list only, or count then we don't need to start the workers.
-	if *listOnly || *countTotalUsersOnly {
+	if *ListOnly || *CountTotalUsersOnly {
 		log.Println("[M]       : LIST ONLY MODE")
 		fmt.Println("[M]       : LIST ONLY MODE")
-		listUsersByEpoch(*clientRealm, *clientId, *clientSecret, *destinationRealm, *url, epoch)
+		listUsersByEpoch(epoch)
 		return
 	}
-
+	// set up concurrency
 	wgReceivers := sync.WaitGroup{}
-	wgReceivers.Add(*threads)
+	wgReceivers.Add(*Threads)
 
-	usersChannel := make(chan []string, *channelBuffer)
-	resultsChannel := make(chan string, *channelBuffer)
-	go readUsersFromKeycloak(*clientRealm, *clientId, *clientSecret, *destinationRealm, *url, epoch, usersChannel)
+	usersChannel := make(chan []string, *ChannelBuffer)
+	resultsChannel := make(chan string, *ChannelBuffer)
+	go readUsersFromKeycloak(epoch, usersChannel)
 
 	go writeLog(resultsChannel)
 
-	for i := 0; i < *threads; i++ {
-		go deleteUserWorker(i, *clientRealm, *clientId, *clientSecret, *destinationRealm, *url, *dryRun, *loginAsAdmin, usersChannel, resultsChannel, &wgReceivers)
+	for i := 0; i < *Threads; i++ {
+		go deleteUserWorker(i, usersChannel, resultsChannel, &wgReceivers)
 	}
 
 	wgReceivers.Wait()
@@ -193,37 +182,41 @@ func main() {
 	duration := endTime - startTime
 	println("[M]       : processed=" + strconv.FormatInt(int64(processed), 10))
 	println("[M]       : deleted=" + strconv.FormatInt(int64(deleted), 10))
-	println("[M]       : logging=" + f.Name() + " path copied to clipboard (maybe)")
-	clipboard.WriteAll(f.Name())
+	log.Println("[M]       : processed=" + strconv.FormatInt(int64(processed), 10))
+	log.Println("[M]       : deleted=" + strconv.FormatInt(int64(deleted), 10))
+
+	println("[M]       : logging=" + fileName + " path copied to clipboard (maybe)")
+	clipboard.WriteAll(fileName)
 	println("[M] END   : export_success=true epoch=" + strconv.FormatInt(endTime, 10) + " duration=" + strconv.FormatInt(duration, 10) + "ms" + " processed=" + strconv.FormatInt(int64(processed), 10))
+	log.Println("[M] END   : export_success=true epoch=" + strconv.FormatInt(endTime, 10) + " duration=" + strconv.FormatInt(duration, 10) + "ms" + " processed=" + strconv.FormatInt(int64(processed), 10))
 
 }
 
-func canLogin(clientRealmName string, clientId string, clientSecret string, url string, headerName string, headerValue string) (bool, error) {
+func canLogin() (bool, error) {
 	log.Println("[V][START]: Validate Login ********")
 
 	var client *gocloak.GoCloak
-	if *useLegacyKeycloak {
+	if *UseLegacyKeycloak {
 		// This is for older versions of Keycloak that is based on WildFly
-		client = gocloak.NewClient(url, gocloak.SetLegacyWildFlySupport())
+		client = gocloak.NewClient(*Url, gocloak.SetLegacyWildFlySupport())
 	} else {
 		// This is for newer versions of Keycloak, that is based on quarkus
-		client = gocloak.NewClient(url)
+		client = gocloak.NewClient(*Url)
 	}
 	// Add the custom header set, if configured.
-	if strings.TrimSpace(headerName) != "" && strings.TrimSpace(headerValue) != "" {
-		client.RestyClient().Header.Set(headerName, headerValue)
+	if strings.TrimSpace(*HeaderKey) != "" && strings.TrimSpace(*HeaderValue) != "" {
+		client.RestyClient().Header.Set(*HeaderKey, *HeaderValue)
 	}
 
 	ctx := context.Background()
 	var token *gocloak.JWT
 	var err error
-	if *loginAsAdmin {
+	if *LoginAsAdmin {
 		log.Println("[V]       : logging into keycloak via admin")
-		token, err = client.LoginAdmin(ctx, clientId, clientSecret, clientRealmName)
+		token, err = client.LoginAdmin(ctx, *ClientId, *ClientSecret, *ClientRealm)
 	} else {
 		log.Println("[V]       : logging into keycloak via client")
-		token, err = client.LoginClient(ctx, clientId, clientSecret, clientRealmName)
+		token, err = client.LoginClient(ctx, *ClientId, *ClientSecret, *ClientRealm)
 	}
 	if err != nil {
 		log.Println("[V]       : token=", token)
@@ -268,7 +261,9 @@ func canLogin(clientRealmName string, clientId string, clientSecret string, url 
 	}
 }
 
-func listUsersByEpoch(realmName string, clientId string, clientSecret string, targetRealm string, url string, deleteEpochTime int64) {
+func listUsersByEpoch(deleteEpochTime int64) {
+
+	//func listUsersByEpoch(realmName string, clientId string, clientSecret string, targetRealm string, url string, deleteEpochTime int64) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Println("[PANIC]: ", r.(string))
@@ -276,50 +271,47 @@ func listUsersByEpoch(realmName string, clientId string, clientSecret string, ta
 		}
 	}()
 
-	log.Println("[O][START]: Fetch users from keycloak ********")
-	log.Println("[O]       : login")
+	log.Println("[E][START]: Fetch users from keycloak ********")
+	log.Println("[E]       : login")
 
 	var client *gocloak.GoCloak
-	if *useLegacyKeycloak {
+	if *UseLegacyKeycloak {
 		// This is for older versions of Keycloak that is based on WildFly
-		client = gocloak.NewClient(url, gocloak.SetLegacyWildFlySupport())
+		client = gocloak.NewClient(*Url, gocloak.SetLegacyWildFlySupport())
 	} else {
 		// This is for newer versions of Keycloak, that is based on quarkus
-		client = gocloak.NewClient(url)
+		client = gocloak.NewClient(*Url)
 	}
 	// set the header values if they exist.
-	if (headerKey != nil && strings.TrimSpace(*headerKey) != "") && (headerValue != nil && strings.TrimSpace(*headerValue) != "") {
-		client.RestyClient().Header.Set(*headerKey, *headerValue)
+	if (strings.TrimSpace(*HeaderKey) != "") && (strings.TrimSpace(*HeaderValue) != "") {
+		client.RestyClient().Header.Set(*HeaderKey, *HeaderValue)
 	}
 	ctx := context.Background()
-	log.Println("[O]       : logging into keycloak")
+	log.Println("[E]       : logging into keycloak")
 	var token *gocloak.JWT
 	var err error
-	if *loginAsAdmin {
-		log.Println("[O]       : logging into keycloak via admin")
-		token, err = client.LoginAdmin(ctx, clientId, clientSecret, realmName)
+	if *LoginAsAdmin {
+		log.Println("[E]       : logging into keycloak via admin")
+		token, err = client.LoginAdmin(ctx, *ClientId, *ClientSecret, *ClientRealm)
 	} else {
-		log.Println("[O]       : logging into keycloak via client")
-		token, err = client.LoginClient(ctx, clientId, clientSecret, realmName)
+		log.Println("[E]       : logging into keycloak via client")
+		token, err = client.LoginClient(ctx, *ClientId, *ClientSecret, *ClientRealm)
 	}
 	if err != nil {
-		log.Println("[O]       : ", token)
-		log.Println("[O]       : ", err)
+		log.Println("[E]       : ", token)
+		log.Println("[E]       : ", err)
 		return
 	} else {
-		log.Println("[O]       : Login Success", token)
+		log.Println("[E]       : Login Success", token)
 	}
 	// Fetch the list of Keycloak users
-	log.Println("[O]       : fetching users from keycloak")
+	log.Println("[E]       : fetching users from keycloak")
 
 	userParams := gocloak.GetUsersParams{}
-	userParams.First = searchMin
-	userParams.Max = searchMax
-	//searchIdp := "e"
-	//userParams.IDPUserID = &searchIdp -- for exact match
-	//userParams.Search = &searchIdp // Will match username, first, last or email
-
-	totalUsers, err := client.GetUserCount(ctx, token.AccessToken, targetRealm, userParams)
+	userParams.First = Page
+	userParams.Max = PageSize
+	// Count total users in keycloak.
+	totalUsers, err := client.GetUserCount(ctx, token.AccessToken, *DestinationRealm, userParams)
 	if err != nil {
 		return
 	}
@@ -331,59 +323,42 @@ func listUsersByEpoch(realmName string, clientId string, clientSecret string, ta
 		fmt.Println("[O]       : Total Users In System =", totalUsers)
 		log.Println("[O]       : Total Users In System =", totalUsers)
 	}
-
-	if *countTotalUsersOnly {
+	// if we are just counting the total users then exit.
+	if *CountTotalUsersOnly {
 		fmt.Println("[O][END]  : counting keycloak users *******************************************")
 		os.Exit(0)
 	}
+	// Get the keycloak users we want to be in the deletion list.
+	users, err := searchKeycloakForUsers(client, token, deleteEpochTime, totalUsers)
 
-	users, err := client.GetUsers(ctx, token.AccessToken, targetRealm, userParams)
-
-	//	users, err := client.GetUsers(ctx, token.AccessToken, targetRealm, gocloak.GetUsersParams{})
 	if err != nil {
-		//fmt.Println("Error fetching users:", err)
 		log.Println("[O]       : Error fetching users:", err)
 		return
 	}
 
-	var counter int32 = 0
-	// Delete users that were created more than 7 days ago
-	log.Println("[O]       : adding user to deletion queue")
-	// get the count of users
 	if len(users) > 0 {
-		fmt.Println("Username,ID")
-		log.Println("Username,ID")
+		fmt.Println("Username,ID,CreationDate")
+		log.Println("Username,ID,CreationDate")
 	}
-
-	for _, user := range users {
-
-		//fmt.Println("[O] user: ", user)
-		//fmt.Println("[O] user createdTS: ", *user.CreatedTimestamp)
-
-		// if days are set to -
-
-		if deleteEpochTime >= *user.CreatedTimestamp {
-			// Add the user to the deletion queue
-			fmt.Println(*user.Username, ",", *user.ID)
-			log.Println(*user.Username, ",", *user.ID)
-			counter++
-		}
+	// Parse or filter through the list of keycloak users, for the actual ones that meet the criteria for deletion
+	deletionList, err := FilterKeycloakUsersByEpoch(deleteEpochTime, users, true, true)
+	if err != nil {
+		log.Println("[O]       : Error filtering users:", err)
+		return
 	}
-	if len(users) > 0 && counter == 0 {
-		fmt.Println("[O]       : No users=[0] found in the searchWindow=[", *searchMax, "] search window, older than ", epochToDateString(deleteEpochTime))
-		log.Println("[O]       : No users=[0] found in the searchWindow=[", *searchMax, "]  older than ", epochToDateString(deleteEpochTime))
+	// If the list is returned.
+	if len(deletionList) == 0 {
+		fmt.Println("[O]       : No users=[0] found in the searchWindow=[", *PageSize, "] search window, older than ", epochToDateString(deleteEpochTime))
+		log.Println("[O]       : No users=[0] found in the searchWindow=[", *PageSize, "]  older than ", epochToDateString(deleteEpochTime))
 	}
-
-	log.Println("[O]       : Identified ", counter, " users out of ", strconv.Itoa(len(users)), STRING_USERS_SEARCHED)
-	log.Println("[O][END]  : reading keycloak users *******************************************")
-
-	fmt.Println("[O]       : Identified ", counter, " users out of ", strconv.Itoa(len(users)), STRING_USERS_SEARCHED)
+	fmt.Println("[O]       : Identified ", len(deletionList), " users out of ", strconv.Itoa(len(users)), STRING_USERS_SEARCHED)
 	fmt.Println("[O][END]  : listUsersByEpoch users *******************************************")
-
 }
 
 // reads file and adds data it to the channel
-func readUsersFromKeycloak(realmName string, clientId string, clientSecret string, targetRealm string, url string, deleteEpochTime int64, jobs chan []string) {
+//func readUsersFromKeycloak(realmName string, clientId string, clientSecret string, targetRealm string, url string, deleteEpochTime int64, jobs chan []string) {
+
+func readUsersFromKeycloak(deleteEpochTime int64, jobs chan []string) {
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -396,27 +371,27 @@ func readUsersFromKeycloak(realmName string, clientId string, clientSecret strin
 	log.Println("[R]       : login")
 
 	var client *gocloak.GoCloak
-	if *useLegacyKeycloak {
+	if *UseLegacyKeycloak {
 		// This is for older versions of Keycloak that is based on WildFly
-		client = gocloak.NewClient(url, gocloak.SetLegacyWildFlySupport())
+		client = gocloak.NewClient(*Url, gocloak.SetLegacyWildFlySupport())
 	} else {
 		// This is for newer versions of Keycloak, that is based on quarkus
-		client = gocloak.NewClient(url)
+		client = gocloak.NewClient(*Url)
 	}
 	// set the header values if they exist.
-	if (headerKey != nil && strings.TrimSpace(*headerKey) != "") && (headerValue != nil && strings.TrimSpace(*headerValue) != "") {
-		client.RestyClient().Header.Set(*headerKey, *headerValue)
+	if (strings.TrimSpace(*HeaderKey) != "") && (strings.TrimSpace(*HeaderValue) != "") {
+		client.RestyClient().Header.Set(*HeaderKey, *HeaderValue)
 	}
 	ctx := context.Background()
 	log.Println("[R]       : logging into keycloak")
 	var token *gocloak.JWT
 	var err error
-	if *loginAsAdmin {
+	if *LoginAsAdmin {
 		log.Println("[R]       : logging into keycloak via admin")
-		token, err = client.LoginAdmin(ctx, clientId, clientSecret, realmName)
+		token, err = client.LoginAdmin(ctx, *ClientId, *ClientSecret, *ClientRealm)
 	} else {
 		log.Println("[R]       : logging into keycloak via client")
-		token, err = client.LoginClient(ctx, clientId, clientSecret, realmName)
+		token, err = client.LoginClient(ctx, *ClientId, *ClientSecret, *ClientRealm)
 	}
 	if err != nil {
 		log.Println("[R]       : ", token)
@@ -429,17 +404,19 @@ func readUsersFromKeycloak(realmName string, clientId string, clientSecret strin
 	// Fetch the list of Keycloak users
 	log.Println("[R]       : fetching users from keycloak")
 	userParams := gocloak.GetUsersParams{}
-	userParams.Max = searchMax
-	userParams.First = searchMin
+	userParams.Max = &*PageSize
+	userParams.First = &*Page
 
-	totalUsers, err := client.GetUserCount(ctx, token.AccessToken, targetRealm, userParams)
+	totalUsers, err := client.GetUserCount(ctx, token.AccessToken, *DestinationRealm, userParams)
 	if err != nil {
 		return
 	}
 	log.Println("[R]       : Total Users In System =", totalUsers)
 	fmt.Println("[R]       : Total Users In System =", totalUsers)
 
-	users, err := client.GetUsers(ctx, token.AccessToken, targetRealm, userParams)
+	// get the keycloak users we want to be in the deletion list.
+	kcUsers, err := searchKeycloakForUsers(client, token, deleteEpochTime, totalUsers)
+	//users, err := client.GetUsers(ctx, token.AccessToken, *DestinationRealm, userParams)
 	if err != nil {
 		//fmt.Println("Error fetching users:", err)
 		log.Println("[R]       : Error fetching users:", err)
@@ -447,16 +424,22 @@ func readUsersFromKeycloak(realmName string, clientId string, clientSecret strin
 		return
 	}
 
+	// Parse or filter through the list of keycloak users, for the actual ones that meet the criteria for deletion
+	users, err := FilterKeycloakUsersByEpoch(deleteEpochTime, kcUsers, false, true)
+	if err != nil {
+		log.Println("[R]       : Error filtering users err:", err)
+		close(jobs)
+		return
+	}
+	fmt.Println("[R]       : Found ", len(users), " users to delete out of ", strconv.Itoa(len(kcUsers)), STRING_USERS_SEARCHED)
 	var counter int32 = 0
 
 	// Delete users that were created more than 7 days ago
 	log.Println("[R]       : adding user to deletion queue")
 	for _, user := range users {
-		//fmt.Println("[R] User", user)
-		//ageInDays := daysSinceCreation(*user.CreatedTimestamp)
-		if deleteEpochTime >= *user.CreatedTimestamp {
+		if deleteEpochTime >= user.CreatedTimestamp {
 			// Add the user to the deletion queue
-			jobs <- []string{*user.Username, *user.ID}
+			jobs <- []string{user.Username, user.Id}
 			counter++
 		}
 	}
@@ -476,7 +459,8 @@ func writeLog(results chan string) {
 	}
 }
 
-func deleteUserWorker(id int, realmName string, clientId string, clientSecret string, targetRealm string, url string, dryRun bool, loginAsAdmin bool, jobs <-chan []string, results chan<- string, wg *sync.WaitGroup) {
+// func deleteUserWorker(id int, realmName string, clientId string, clientSecret string, targetRealm string, url string, dryRun bool, loginAsAdmin bool, jobs <-chan []string, results chan<- string, wg *sync.WaitGroup) {
+func deleteUserWorker(id int, jobs <-chan []string, results chan<- string, wg *sync.WaitGroup) {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Println("[D] panic : ", r.(string))
@@ -489,34 +473,34 @@ func deleteUserWorker(id int, realmName string, clientId string, clientSecret st
 	log.Println("[D][", id, "]  : Bulk User Tool Starting")
 
 	var client *gocloak.GoCloak
-	if *useLegacyKeycloak {
+	if *UseLegacyKeycloak {
 		// This is for older versions of Keycloak that is based on WildFly
-		client = gocloak.NewClient(url, gocloak.SetLegacyWildFlySupport())
+		client = gocloak.NewClient(*Url, gocloak.SetLegacyWildFlySupport())
 	} else {
 		// This is for newer versions of Keycloak, that is based on quarkus
-		client = gocloak.NewClient(url)
+		client = gocloak.NewClient(*Url)
 	}
 	// set the header values if they exist.
-	if (headerKey != nil && strings.TrimSpace(*headerKey) != "") && (headerValue != nil && strings.TrimSpace(*headerValue) != "") {
-		client.RestyClient().Header.Set(*headerKey, *headerValue)
+	if (strings.TrimSpace(*HeaderKey) != "") && (strings.TrimSpace(*HeaderValue) != "") {
+		client.RestyClient().Header.Set(*HeaderKey, *HeaderValue)
 	}
 	ids := strconv.Itoa(id)
 	ctx := context.Background()
 	log.Println("[D][", ids, "]  : logging into keycloak")
 	var token *gocloak.JWT
 	var err error
-	if loginAsAdmin {
+	if *LoginAsAdmin {
 		log.Println("[D]       : logging into keycloak via admin")
-		token, err = client.LoginAdmin(ctx, clientId, clientSecret, realmName)
+		token, err = client.LoginAdmin(ctx, *ClientId, *ClientSecret, *ClientRealm)
 	} else {
 		log.Println("[D]       : logging into keycloak via client")
-		token, err = client.LoginClient(ctx, clientId, clientSecret, realmName)
+		token, err = client.LoginClient(ctx, *ClientId, *ClientSecret, *ClientRealm)
 	}
 	if err != nil {
 		log.Println("[D][", ids, "] ", token)
 		log.Println("[D][", ids, "] ", err)
-		log.Println("[D][", ids, "] clientId=", clientId)
-		fmt.Println("[D][", ids, "] clientId=["+clientId+"]")
+		log.Println("[D][", ids, "] clientId=", *ClientId)
+		fmt.Println("[D][", ids, "] clientId=["+*ClientId+"]")
 		// because of this error, we will signal the worker group that this worker is done
 		//defer wg.Done()
 		return
@@ -530,7 +514,7 @@ func deleteUserWorker(id int, realmName string, clientId string, clientSecret st
 		users, err := client.GetUsers(
 			ctx,
 			token.AccessToken,
-			targetRealm,
+			*DestinationRealm,
 			gocloak.GetUsersParams{
 				Username: &channelData[0]})
 		if err != nil {
@@ -541,7 +525,7 @@ func deleteUserWorker(id int, realmName string, clientId string, clientSecret st
 				fmt.Println("[C][", ids, "] : refresh token attempt")
 				//wg.Done()
 				// try to refresh the token
-				newToken, err := client.RefreshToken(ctx, token.RefreshToken, clientId, clientSecret, realmName)
+				newToken, err := client.RefreshToken(ctx, token.RefreshToken, *ClientId, *ClientSecret, *ClientRealm)
 				if err != nil {
 					//panic(err)
 					log.Println("[C][", ids, "] : exiting thread due to 401, refresh token failed "+err.Error())
@@ -565,8 +549,8 @@ func deleteUserWorker(id int, realmName string, clientId string, clientSecret st
 
 		} else {
 
-			if !dryRun {
-				err := client.DeleteUser(ctx, token.AccessToken, targetRealm, userID)
+			if !*DryRun {
+				err := client.DeleteUser(ctx, token.AccessToken, *DestinationRealm, userID)
 				if err != nil {
 					log.Println("[D][", ids, "] delete user error : ", err.Error())
 					ok = false
@@ -605,17 +589,15 @@ func nowAsUnixMilliseconds() int64 {
 }
 
 // Print the command line arguments on the screen.
-func printCmdLineArgs() {
-
-	outputCmdLineArgs(os.Stdout)
-
+func printCmdLineArgsCfg() {
+	outputCmdLineArgsCfg(os.Stdout)
 }
 
 // Send the command line arguments to the log file
 func logCmdLineArgs() {
 	// Prepare a writer from logger. This assumes that log.Output() is your logger instance.
 	loggerWriter := log.Writer()
-	outputCmdLineArgs(loggerWriter)
+	outputCmdLineArgsCfg(loggerWriter)
 }
 
 func testColour() {
@@ -688,170 +670,326 @@ func epochToDateString(epoch int64) string {
  * Parse the environmental variables, this will be overridden by the command line arguments.
  */
 func parseEnvVariables() {
-
-	envClientId := os.Getenv(ENV_CLIENT_ID)
-	if envClientId != "" {
-		*clientId = envClientId
-	}
-	envClientSecret := os.Getenv(ENV_CLIENT_SECRET)
-	if envClientSecret != "" {
-		*clientSecret = envClientSecret
-	}
-	envClientRealm := os.Getenv(ENV_CLIENT_REALM)
-	if envClientRealm != "" {
-		*clientRealm = envClientRealm
-	}
-	envDestinationRealm := os.Getenv(ENV_DESTINATION_REALM)
-	if envDestinationRealm != "" {
-		*destinationRealm = envDestinationRealm
-	}
-	envUrl := os.Getenv(ENV_URL)
-	if envUrl != "" {
-		*url = envUrl
-	}
-	envDryRun := os.Getenv(ENV_DRY_RUN)
-	if envDryRun != "" {
-		*dryRun = envDryRun == "true"
+	// Parsing code, setting config fields from environment variables.
+	envVars := map[string]*string{
+		ENV_CLIENT_ID:         &*ClientId,
+		ENV_CLIENT_SECRET:     &*ClientSecret,
+		ENV_CLIENT_REALM:      &*ClientRealm,
+		ENV_DESTINATION_REALM: &*DestinationRealm,
+		ENV_URL:               &*Url,
+		ENV_DELETE_DATE:       &*DeleteDate,
+		ENV_HEADER_NAME:       &*HeaderKey,
+		ENV_HEADER_VALUE:      &*HeaderValue,
+		ENV_LOG_DIR:           &*LogDir,
 	}
 
-	envLogCmdValues := os.Getenv(ENV_LOG_CMD_VALUES)
-	if envLogCmdValues != "" {
-		*logCmdValues = envLogCmdValues == "true"
+	envBools := map[string]*bool{
+		ENV_DRY_RUN:             &*DryRun,
+		ENV_LOG_CMD_VALUES:      &*LogCmdValues,
+		ENV_USE_LEGACY_KEYCLOAK: &*UseLegacyKeycloak,
+		ENV_LOGIN_AS_ADMIN:      &*LoginAsAdmin,
+		ENV_SEARCH_ALL_USERS:    &*SearchAllUsers,
+		ENV_COUNT_ONLY:          &*CountTotalUsersOnly,
+		ENV_LIST_ONLY:           &*ListOnly,
 	}
 
-	// Override the value for using the legacy keycloak client url, ie `/admin`
-	envUseLegacy := os.Getenv(ENV_USE_LEGACY_KEYCLOAK)
-	if envUseLegacy != "" {
-		*useLegacyKeycloak = strings.ToUpper(envUseLegacy) == "TRUE"
+	envInts := map[string]*int{
+		ENV_THREADS:         &*Threads,
+		ENV_CHANNEL_BUFFER:  &*ChannelBuffer,
+		ENV_MAX_AGE_IN_DAYS: &*MaxAgeInDays,
+		ENV_PAGE_SIZE:       &*PageSize,
+		ENV_PAGE_OFFSET:     &*Page,
 	}
 
-	envLogDir := os.Getenv(ENV_LOG_DIR)
-	if envLogDir != "" {
-		//check if the logging location exists
-		if _, err := os.Stat(envLogDir); os.IsNotExist(err) {
-			log.Fatal("Error logging directory does not exist: ", err)
-			panic("Error logging directory does not exist: " + ENV_LOG_DIR + err.Error())
+	for envVar, field := range envVars {
+		if value := os.Getenv(envVar); value != "" {
+			*field = value
 		}
-		*logDir = envLogDir
 	}
 
-	envLoginAsAdmin := os.Getenv(ENV_LOGIN_AS_ADMIN)
-	if envLoginAsAdmin != "" {
-		*loginAsAdmin = envLoginAsAdmin == "true"
+	for envVar, field := range envBools {
+		if value := os.Getenv(envVar); value != "" {
+			*field = strings.ToLower(value) == "true"
+		}
 	}
 
-	envDeleteDate := os.Getenv(ENV_MAX_AGE_IN_DATE)
-	if envDeleteDate != "" {
-		*deleteDate = envDeleteDate
+	for envVar, field := range envInts {
+		if value := os.Getenv(envVar); value != "" {
+			parsedValue, err := strconv.Atoi(value)
+			if err != nil {
+				log.Fatalf("Error parsing integer from env variable %s: %v", envVar, err)
+			}
+			*field = parsedValue
+		}
+	}
+}
+
+func validateDayDateConfiguration() {
+	if *MaxAgeInDays > EMPTY_DAYS && *DeleteDate != "" {
+		log.Fatalf("Error: maxAgeInDays and deleteDate are both set. Please set only one of them.")
 	}
 
+	if *MaxAgeInDays <= EMPTY_DAYS && *DeleteDate == "" {
+		log.Fatalf("Error: maxAgeInDays and deleteDate are both not set. Please set one of them.")
+	}
+
+	if *DeleteDate != "" {
+		_, err := time.Parse(DateFormat, *DeleteDate)
+		if err != nil {
+			log.Fatalf("Error: deleteDate is not in the correct format. Please use YYYY-MM-DD")
+		}
+	}
+}
+
+func initKeycloakClient() *gocloak.GoCloak {
+	var client *gocloak.GoCloak
+	if *UseLegacyKeycloak {
+		client = gocloak.NewClient(*Url, gocloak.SetLegacyWildFlySupport())
+	} else {
+		client = gocloak.NewClient(*Url)
+	}
+
+	if *HeaderKey != "" && *HeaderValue != "" {
+		client.RestyClient().Header.Set(*HeaderKey, *HeaderValue)
+	}
+
+	return client
+}
+
+func loginKeycloak(client *gocloak.GoCloak) (*gocloak.JWT, error) {
+	ctx := context.Background()
+	var token *gocloak.JWT
 	var err error
-
-	envDays := os.Getenv(ENV_MAX_AGE_IN_DAYS)
-	if envDays != "" {
-		*maxAgeInDays, err = strconv.Atoi(envDays)
-		if err != nil {
-			log.Fatal("Error parsing days from env variable: ", err)
-			panic(ERROR_PARSING_ENV_VER + ENV_MAX_AGE_IN_DAYS + err.Error())
-		}
+	if *LoginAsAdmin {
+		token, err = client.LoginAdmin(ctx, *ClientId, *ClientSecret, *ClientRealm)
+	} else {
+		token, err = client.LoginClient(ctx, *ClientId, *ClientSecret, *ClientRealm)
 	}
+	return token, err
+}
 
-	envThreads := os.Getenv(ENV_THREADS)
-	if envThreads != "" {
-		*threads, err = strconv.Atoi(envThreads)
-		if err != nil {
-			log.Fatal(ERROR_PARSING_ENV_VER, err)
-			//fmt.Fatal("Error parsing threads from env variable: ", err)
-			panic(ERROR_PARSING_ENV_VER + ENV_THREADS + err.Error())
-		}
+func startLogging(exeName string, startTimeString string) (string, error) {
+
+	f, err := os.OpenFile(filepath.Join(*LogDir, startTimeString+"-"+exeName+".log"), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("error opening file: %v", err)
+		return "", err
 	}
-
-	envChannelBuffer := os.Getenv(ENV_CHANNEL_BUFFER)
-	if envChannelBuffer != "" {
-		*channelBuffer, err = strconv.Atoi(envChannelBuffer)
-		if err != nil {
-			log.Fatal("Error parsing channel buffer from env variable: ", err)
-			panic("Error parsing channelBuffer from env variable:" + ENV_CHANNEL_BUFFER + err.Error())
-		}
-	}
-
-	envPageSize := os.Getenv(ENV_PAGE_SIZE)
-	if envPageSize != "" {
-		*searchMax, err = strconv.Atoi(envPageSize)
-		if err != nil {
-			log.Fatal("Error parsing page size from env variable: ", err)
-			panic("Error parsing pageSize from env variable:" + ENV_PAGE_SIZE + err.Error())
-		}
-	}
-
-	envPageOffset := os.Getenv(ENV_PAGE_OFFSET)
-	if envPageOffset != "" {
-		*searchMin, err = strconv.Atoi(envPageOffset)
-		if err != nil {
-			log.Fatal("Error parsing page offset from env variable: ", err)
-			panic("Error parsing pageOffset from env variable:" + ENV_PAGE_OFFSET + err.Error())
-		}
-	}
-
-	// Note this will not allow the header value to be null. need to think about this more.
-	envHeaderName := os.Getenv(ENV_HEADER_NAME)
-	if strings.TrimSpace(envHeaderName) != "" {
-		envHeaderValue := os.Getenv(ENV_HEADER_VALUE)
-		if strings.TrimSpace(envHeaderValue) != "" {
-			*headerKey = envHeaderName
-			*headerValue = envHeaderValue
-		}
-	}
-
-	// Check if the user wants to only count the total number of users.
-	envCountOnly := os.Getenv(ENV_COUNT_ONLY)
-	if envCountOnly != "" {
-		*countTotalUsersOnly = envCountOnly == "true"
-	}
-
-	// Check if the user wants to only list the users that will be deleted.
-	envListUsers := os.Getenv(ENV_LIST_ONLY)
-	if envListUsers != "" {
-		*listOnly = envListUsers == "true"
-	}
-
+	log.SetOutput(f)
+	log.SetFlags(0)
 	logCmdLineArgs()
 
+	log.Println("Logging started")
+	//defer f.Close()
+	return f.Name(), nil
 }
 
 // Function that accepts an io.Writer to print or log
-func outputCmdLineArgs(out io.Writer) {
-	fmt.Fprintln(out, "[KeyCloak Delete via API Tool (Day/Date Based)]")
-	fmt.Fprintln(out, "  Authentication:")
-	fmt.Fprintln(out, "    clientId:", *clientId)
-	fmt.Fprintln(out, "    clientSecret:", *clientSecret)
-	fmt.Fprintln(out, "    clientRealm:", *clientRealm)
-	fmt.Fprintln(out, "    destinationRealm:", *destinationRealm)
-	fmt.Fprintln(out, "    loginAsAdmin:", *loginAsAdmin)
-	fmt.Fprintln(out, "    url:", *url)
-	fmt.Fprintln(out, "    useLegacyKeycloak:", *useLegacyKeycloak)
-	fmt.Fprintln(out, "  Concurrency")
-	fmt.Fprintln(out, "    channelBuffer:", *channelBuffer)
-	fmt.Fprintln(out, "    threads:", *threads)
-	fmt.Fprintln(out, "  Deletion Criteria")
+func outputCmdLineArgsCfg(out io.Writer) {
+	_, _ = fmt.Fprintln(out, "[KeyCloak Delete via API Tool (Day/Date Based)]")
+	_, _ = fmt.Fprintln(out, "  Authentication:")
+	_, _ = fmt.Fprintln(out, "    clientId:", *ClientId)
+	_, _ = fmt.Fprintln(out, "    clientSecret:", *ClientSecret)
+	_, _ = fmt.Fprintln(out, "    clientRealm:", *ClientRealm)
+	_, _ = fmt.Fprintln(out, "    destinationRealm:", *DestinationRealm)
+	_, _ = fmt.Fprintln(out, "    loginAsAdmin:", *LoginAsAdmin)
+	_, _ = fmt.Fprintln(out, "    url:", *Url)
+	_, _ = fmt.Fprintln(out, "    useLegacyKeycloak:", *UseLegacyKeycloak)
+	_, _ = fmt.Fprintln(out, "  Concurrency")
+	_, _ = fmt.Fprintln(out, "    channelBuffer:", *ChannelBuffer)
+	_, _ = fmt.Fprintln(out, "    threads:", *Threads)
+	_, _ = fmt.Fprintln(out, "  Deletion Criteria")
 
-	if *maxAgeInDays > EMPTY_DAYS {
-		fmt.Fprintln(out, "    maxDaysInAge:", *maxAgeInDays, "[", daysToDate(*maxAgeInDays), "]")
+	if *MaxAgeInDays > 0 {
+		_, _ = fmt.Fprintln(out, "    maxDaysInAge:", *MaxAgeInDays, "[", daysToDate(*MaxAgeInDays), "]")
 	} else {
-		fmt.Fprintln(out, "    maxDaysInAge:", "disabled")
+		_, _ = fmt.Fprintln(out, "    maxDaysInAge:", "disabled")
 	}
-	if *deleteDate != "" {
-		fmt.Fprintln(out, "    deleteDate:", *deleteDate)
+	if *DeleteDate != "" {
+		_, _ = fmt.Fprintln(out, "    deleteDate:", *DeleteDate)
 	} else {
-		fmt.Fprintln(out, "    deleteDate:", "Disabled")
+		_, _ = fmt.Fprintln(out, "    deleteDate:", "Disabled")
 	}
-	fmt.Fprintln(out, "  Misc Config")
-	fmt.Fprintln(out, "    dryRun:", *dryRun)
-	fmt.Fprintln(out, "    logCmdValues:", *logCmdValues)
-	fmt.Fprintln(out, "    logDir:", *logDir)
-	fmt.Fprintln(out, "    searchMin:", *searchMin)
-	fmt.Fprintln(out, "    searchMax:", *searchMax)
-	fmt.Fprintln(out, "    countTotalUsersOnly:", *countTotalUsersOnly)
-	fmt.Fprintln(out, "    listOnly:", *listOnly)
-	fmt.Fprintln(out, " ")
+	_, _ = fmt.Fprintln(out, "  Misc Config")
+	_, _ = fmt.Fprintln(out, "    dryRun:", *DryRun)
+	_, _ = fmt.Fprintln(out, "    logCmdValues:", *LogCmdValues)
+	_, _ = fmt.Fprintln(out, "    logDir:", *LogDir)
+	_, _ = fmt.Fprintln(out, "    page:", *Page)
+	_, _ = fmt.Fprintln(out, "    pageSize:", *PageSize)
+	_, _ = fmt.Fprintln(out, "    searchAllUsers:", *SearchAllUsers)
+	_, _ = fmt.Fprintln(out, "    countTotalUsersOnly:", *CountTotalUsersOnly)
+	_, _ = fmt.Fprintln(out, "    listOnly:", *ListOnly)
+	_, _ = fmt.Fprintln(out, " ")
+}
+
+func handleDryRun() {
+	if *DryRun {
+		log.Println("Dry run mode enabled. No users will be deleted.")
+		printCmdLineArgsCfg()
+	}
+}
+
+/**
+ * Search Keycloak for users to delete.
+ */
+func searchKeycloakForUsersToDelete2(client *gocloak.GoCloak, token *gocloak.JWT, epoch int64, totalUsers int) ([]DeletionUser, error) {
+	ctx := context.Background()
+	userParams := gocloak.GetUsersParams{}
+	userParams.First = Page
+	userParams.Max = PageSize
+
+	if *CountTotalUsersOnly {
+		fmt.Println("[O][END]  : counting keycloak users *******************************************")
+		os.Exit(0)
+	}
+	var users []*gocloak.User
+
+	if *SearchAllUsers {
+		// Build the user list.
+		fmt.Printf("[S] Pages required=%f", math.Ceil(float64(totalUsers)/float64(*PageSize)))
+
+		for currentPage := *Page; currentPage**PageSize < totalUsers; currentPage++ {
+			startIndex := currentPage * *PageSize
+			endIndex := (currentPage + 1) * *PageSize
+			if endIndex > totalUsers {
+				endIndex = totalUsers
+			}
+			userParams.First = &startIndex
+			userParams.Max = &*PageSize
+			fmt.Printf("[S] Building User List: user page=%d: users from=%d to=%d", currentPage, startIndex+1, endIndex)
+			tmpUsers, err := client.GetUsers(ctx, token.AccessToken, *DestinationRealm, userParams)
+			if err != nil {
+				log.Println("[S]       : Error fetching users:", err, " total_users_fetched=", len(users))
+				return nil, err
+			}
+			// Add the users to the list
+			users = append(users, tmpUsers...)
+			fmt.Printf("[S] total_users_fetched=%d\n", len(users))
+		}
+	} else {
+		// just add the ones that are in the search window
+		users, err := client.GetUsers(ctx, token.AccessToken, *DestinationRealm, userParams)
+
+		if err != nil {
+			//fmt.Println("Error fetching users:", err)
+			log.Println("[S]       : Error fetching users:", err)
+			return nil, err
+		}
+
+		// Delete users that were created more than 7 days ago
+		log.Println("[S]       : adding user to deletion queue")
+		// get the count of users
+		if len(users) > 0 {
+			fmt.Println("Username,ID,CreationDate")
+			log.Println("Username,ID,CreationDate")
+		}
+	}
+	return nil, nil
+}
+
+/**
+ * Filter the Keycloak users by the epoch time.
+ * return a list of users that meet the criteria.
+ */
+func FilterKeycloakUsersByEpoch(epoch int64, users []*gocloak.User, printOut bool, logOut bool) ([]DeletionUser, error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Println("[PANIC]: ", r.(string))
+			println("panic:" + r.(string))
+		}
+	}()
+	// Check if users is empty
+	if len(users) == 0 {
+		if logOut {
+			log.Println("[F]       : No users found in system")
+			log.Println("[F]       : No users In System, exiting")
+		}
+		return nil, nil
+	}
+	// Create a list of users to delete
+	deletionUsers := make([]DeletionUser, 0, 2)
+	if logOut {
+		log.Println("[F]       : filtering through ", len(users), " users")
+	}
+	if printOut {
+		fmt.Println("[F]       : filtering through ", len(users), " users")
+	}
+	for _, kcUser := range users {
+
+		if epoch >= *kcUser.CreatedTimestamp {
+			// Add the user to the deletion queue
+			if printOut {
+				fmt.Println(*kcUser.Username, ",", *kcUser.ID, ",", epochToDateString(*kcUser.CreatedTimestamp))
+			}
+			if logOut {
+				log.Println(*kcUser.Username, ",", *kcUser.ID, ",", epochToDateString(*kcUser.CreatedTimestamp))
+			}
+			deletionUsers = append(deletionUsers, DeletionUser{Username: *kcUser.Username, Id: *kcUser.ID, CreatedTimestamp: *kcUser.CreatedTimestamp, Email: *kcUser.Email})
+		}
+	}
+
+	if logOut {
+		log.Println("[F]       : Identified ", len(deletionUsers), " users out of ", strconv.Itoa(len(users)), STRING_USERS_SEARCHED)
+	}
+	if printOut {
+		fmt.Println("[F]       : Identified ", len(deletionUsers), " users out of ", strconv.Itoa(len(users)), STRING_USERS_SEARCHED)
+	}
+	return deletionUsers, nil
+}
+
+/**
+ * Get the keycloak users from keycloak.
+ */
+func searchKeycloakForUsers(client *gocloak.GoCloak, token *gocloak.JWT, epoch int64, totalUsers int) ([]*gocloak.User, error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Println("[PANIC]: ", r.(string))
+			println("panic:" + r.(string))
+		}
+	}()
+	//var users []*gocloak.User
+	users := make([]*gocloak.User, 0, 2)
+
+	ctx := context.Background()
+	userParams := gocloak.GetUsersParams{}
+	userParams.First = Page
+	userParams.Max = PageSize
+	if *SearchAllUsers {
+		// Build the user list.
+
+		for currentPage := *Page; currentPage**PageSize < totalUsers; currentPage++ {
+			startIndex := currentPage * *PageSize
+			endIndex := (currentPage + 1) * *PageSize
+			if endIndex > totalUsers {
+				endIndex = totalUsers
+			}
+			userParams.First = &startIndex
+			userParams.Max = PageSize
+			fmt.Printf("Building User List: user page=%d: users from=%d to=%d", currentPage, startIndex+1, endIndex)
+			tmpUsers, err := client.GetUsers(ctx, token.AccessToken, *DestinationRealm, userParams)
+			if err != nil {
+				log.Println("[O]       : Error fetching users:", err, " total_users_fetched=", len(users))
+				return nil, err
+			}
+			// Add the users to the list
+			users = append(users, tmpUsers...)
+			fmt.Printf("[K] total_users_fetched=%d\n", len(users))
+		}
+	} else {
+		// just add the ones that are in the search window
+		tmpUsers, err := client.GetUsers(ctx, token.AccessToken, *DestinationRealm, userParams)
+
+		//	users, err := client.GetUsers(ctx, token.AccessToken, targetRealm, gocloak.GetUsersParams{})
+		if err != nil {
+			//fmt.Println("Error fetching users:", err)
+			log.Println("[K]       : Error fetching users:", err)
+			return nil, err
+		}
+		users = append(users, tmpUsers...)
+		// Delete users that were created more than 7 days ago
+		log.Println("[K]       : adding user to deletion queue")
+		// get the count of users
+
+	}
+	return users, nil
 }

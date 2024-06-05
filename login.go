@@ -10,7 +10,7 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 )
 
-func login(clientRealmName string, clientId string, clientSecret string, url string, headerName string, headerValue string, loginAsAdmin *bool, validateLogin *bool) (*gocloak.GoCloak, *gocloak.JWT, error) {
+func login(clientRealmName string, clientId string, clientSecret string, url string, headerName string, headerValue string, loginAsAdmin *bool, validateLogin *bool, useLegacyKeycloak *bool) (*gocloak.GoCloak, *gocloak.JWT, error) {
 	output(ERROR, true, false, "[L][START]: Login ********")
 
 	var client *gocloak.GoCloak
